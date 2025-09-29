@@ -34,12 +34,12 @@ impl Implementation {
         //         return avx2_impl;
         //     }
         // }
-        // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        // {
-        //     if let Some(sse41_impl) = Self::sse41_if_supported() {
-        //         return sse41_impl;
-        //     }
-        // }
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            if let Some(sse41_impl) = Self::sse41_if_supported() {
+                return sse41_impl;
+            }
+        }
         Self::portable()
     }
 
