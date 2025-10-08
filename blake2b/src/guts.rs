@@ -17,8 +17,6 @@ enum Platform {
     Portable,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     SSE41,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    AVX2,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -26,14 +24,6 @@ pub struct Implementation(Platform);
 
 impl Implementation {
     pub fn detect() -> Self {
-        // Try the different implementations in order of how fast/modern they
-        // are. Currently on non-x86, everything just uses portable.
-        // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        // {
-        //     if let Some(avx2_impl) = Self::avx2_if_supported() {
-        //         return avx2_impl;
-        //     }
-        // }
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             if let Some(sse41_impl) = Self::sse41_if_supported() {
@@ -65,29 +55,8 @@ impl Implementation {
         None
     }
 
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    #[allow(unreachable_code)]
-    pub fn avx2_if_supported() -> Option<Self> {
-        // Check whether AVX2 support is assumed by the build.
-        #[cfg(target_feature = "avx2")]
-        {
-            return Some(Implementation(Platform::AVX2));
-        }
-        // Otherwise dynamically check for support if we can.
-        #[cfg(feature = "std")]
-        {
-            println!("checking for avx2");
-            if is_x86_feature_detected!("avx2") {
-                return Some(Implementation(Platform::AVX2));
-            }
-        }
-        None
-    }
-
     pub fn degree(&self) -> usize {
         match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => avx2::DEGREE,
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::SSE41 => sse41::DEGREE,
             Platform::Portable => 1,
@@ -104,10 +73,6 @@ impl Implementation {
         stride: Stride,
     ) {
         match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => unsafe {
-                avx2::compress1_loop(input, words, count, last_node, finalize, stride);
-            },
             // Note that there's an SSE version of compress1 in the official C
             // implementation, but I haven't ported it yet.
             _ => {
@@ -119,7 +84,7 @@ impl Implementation {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn compress2_loop(&self, jobs: &mut [Job; 2], finalize: Finalize, stride: Stride) {
         match self.0 {
-            Platform::AVX2 | Platform::SSE41 => unsafe {
+            Platform::SSE41 => unsafe {
                 sse41::compress2_loop(jobs, finalize, stride)
             },
             _ => panic!("unsupported"),
@@ -129,7 +94,6 @@ impl Implementation {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn compress4_loop(&self, jobs: &mut [Job; 4], finalize: Finalize, stride: Stride) {
         match self.0 {
-            Platform::AVX2 => unsafe { avx2::compress4_loop(jobs, finalize, stride) },
             _ => panic!("unsupported"),
         }
     }
@@ -272,25 +236,18 @@ mod test {
         #[cfg(feature = "std")]
         {
             if is_x86_feature_detected!("avx2") {
-                assert_eq!(Platform::AVX2, Implementation::detect().0);
-                assert_eq!(
-                    Platform::AVX2,
-                    Implementation::avx2_if_supported().unwrap().0
-                );
                 assert_eq!(
                     Platform::SSE41,
                     Implementation::sse41_if_supported().unwrap().0
                 );
             } else if is_x86_feature_detected!("sse4.1") {
                 assert_eq!(Platform::SSE41, Implementation::detect().0);
-                assert!(Implementation::avx2_if_supported().is_none());
                 assert_eq!(
                     Platform::SSE41,
                     Implementation::sse41_if_supported().unwrap().0
                 );
             } else {
                 assert_eq!(Platform::Portable, Implementation::detect().0);
-                assert!(Implementation::avx2_if_supported().is_none());
                 assert!(Implementation::sse41_if_supported().is_none());
             }
         }
@@ -430,9 +387,6 @@ mod test {
     #[test]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_compress1_loop_avx2() {
-        if let Some(imp) = Implementation::avx2_if_supported() {
-            exercise_compress1_loop(imp);
-        }
     }
 
     // I use ArrayVec everywhere in here becuase currently these tests pass
